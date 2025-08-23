@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  selector:
+    matchLabels:
+      app: my-app
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      containers:
+      - name: my-app-container
+        image: my-repo/my-app:latest
+        env:
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: my-app-secret # Refers to the Secret created above
+              key: "V2hhdCoxMjNFdmVyMQo="      # Refers to the 'username' key within that Secret
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: my-app-secret # Refers to the Secret created above
+              key: "V2hhdCoxMjNFdmVyMQo="      # Refers to the 'password' key within that Secret
+        # ... other container configurations
