@@ -1,4 +1,23 @@
-module "s3_bucket" {
-  source                   = "../../../modules/s3"
-  buckets                  = var.buckets 
+locals {
+  test_metadata = {
+    api_key  = "XVGYUhyauety23899ajjjagGGGG"
+    username
+  }
+}
+
+resource "aws_s3_bucket" "my_bucket" {
+
+  for_each = var.buckets
+
+  bucket = each.value.bucket_name
+  
+  tags = {
+    Name = each.value.bucket_name
+    Environment = each.value.environment
+    test = "hello"
+  }
+
+  lifecycle {
+    ignore_changes = [tags]
+  }
 }
