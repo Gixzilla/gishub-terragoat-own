@@ -1,7 +1,7 @@
 locals {
   test_metadata = {
     api_key  = "XVGYUhyauety23899ajjjagGGGG"
-    username
+    username = "demo"
   }
 }
 
