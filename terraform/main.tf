@@ -1,1 +1,25 @@
-1
+{
+  "name": "my-secure-app",
+  "version": "1.0.0",
+  "description": "Project with patched security vulnerabilities",
+  "main": "index.js",
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.20",
+    "axios": "^1.15.0",
+    "lodash": "^4.17.21",
+    "cross-spawn": "^7.0.6",
+    "micromatch": "^4.0.8",
+    "webpack-dev-middleware": "^5.3.4"
+  },
+  "overrides": {
+    "axios": "^1.15.0",
+    "lodash": "^4.17.21",
+    "cross-spawn": "^7.0.6",
+    "micromatch": "^4.0.8"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}
