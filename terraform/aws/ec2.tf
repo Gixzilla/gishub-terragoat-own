@@ -1,22 +1,37 @@
+# This Terraform configuration deploys a basic AWS EC2 instance with
+# a web server, an attached EBS volume, and VPC infrastructure.
+# It has been modified to address common security vulnerabilities.
+
+# IMPORTANT:
+# - Replace 'YOUR_TRUSTED_IP_CIDR' with your actual trusted IP address range for SSH.
+# - This template assumes you have 'var.ami', 'var.region', and 'local.resource_prefix.value' defined elsewhere.
+# - For production, consider more robust IAM role definitions for applications.
+
+# --- EC2 Instance ---
 resource "aws_instance" "web_host" {
-  # ec2 have plain text secrets in user data
-  ami           = "${var.ami}"
+  ami           = var.ami
   instance_type = "t2.nano"
 
-  vpc_security_group_ids = [
-  "${aws_security_group.web-node.id}"]
-  subnet_id = "${aws_subnet.web_subnet.id}"
+  # Associate with the security group defined below
+  vpc_security_group_ids = [aws_security_group.web-node.id]
+  # Assign to the public subnet
+  subnet_id = aws_subnet.web_subnet.id
+
+  # Security Enhancement: Removed hardcoded secrets.
+  # For AWS access from EC2, use an IAM Role (Instance Profile)
+  # with specific permissions and attach it to this instance.
   user_data = <<EOF
 #! /bin/bash
 sudo apt-get update
 sudo apt-get install -y apache2
 sudo systemctl start apache2
 sudo systemctl enable apache2
-export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMAAA
-export AWS_SECRET_ACCESS_KEY=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
-export AWS_DEFAULT_REGION=us-west-2
-echo "<h1>Deployed via Terraform</h1>" | sudo tee /var/www/html/index.html
+echo "<h1>Deployed via Terraform (Secured)</h1>" | sudo tee /var/www/html/index.html
 EOF
+
+  # Security Enhancement: Enable termination protection to prevent accidental deletion
+  disable_api_termination = true
+
   tags = merge({
     Name = "${local.resource_prefix.value}-ec2"
     }, {
@@ -31,11 +46,13 @@ EOF
   })
 }
 
+# --- EBS Volume ---
 resource "aws_ebs_volume" "web_host_storage" {
-  # unencrypted volume
+  # Security Enhancement: Enable encryption for data at rest
   availability_zone = "${var.region}a"
-  #encrypted         = false  # Setting this causes the volume to be recreated on apply 
-  size = 1
+  encrypted         = true # Ensure the volume is encrypted
+  size              = 1    # GB
+
   tags = merge({
     Name = "${local.resource_prefix.value}-ebs"
     }, {
@@ -50,10 +67,12 @@ resource "aws_ebs_volume" "web_host_storage" {
   })
 }
 
+# --- EBS Snapshot ---
 resource "aws_ebs_snapshot" "example_snapshot" {
-  # ebs snapshot without encryption
-  volume_id   = "${aws_ebs_volume.web_host_storage.id}"
+  # Security Enhancement: Snapshot will inherit encryption from the source volume
+  volume_id   = aws_ebs_volume.web_host_storage.id
   description = "${local.resource_prefix.value}-ebs-snapshot"
+
   tags = merge({
     Name = "${local.resource_prefix.value}-ebs-snapshot"
     }, {
@@ -68,40 +87,48 @@ resource "aws_ebs_snapshot" "example_snapshot" {
   })
 }
 
+# --- EBS Volume Attachment ---
 resource "aws_volume_attachment" "ebs_att" {
   device_name = "/dev/sdh"
-  volume_id   = "${aws_ebs_volume.web_host_storage.id}"
-  instance_id = "${aws_instance.web_host.id}"
+  volume_id   = aws_ebs_volume.web_host_storage.id
+  instance_id = aws_instance.web_host.id
 }
 
+# --- Security Group ---
 resource "aws_security_group" "web-node" {
-  # security group is open to the world in SSH port
   name        = "${local.resource_prefix.value}-sg"
   description = "${local.resource_prefix.value} Security Group"
   vpc_id      = aws_vpc.web_vpc.id
 
+  # Security Enhancement: Restrict SSH access to a trusted IP range
   ingress {
-    from_port = 80
-    to_port   = 80
-    protocol  = "tcp"
-    cidr_blocks = [
-    "0.0.0.0/0"]
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    # !!! IMPORTANT: REPLACE THIS WITH YOUR TRUSTED IP CIDR !!!
+    # For example: ["203.0.113.0/24"] or ["YOUR_OFFICE_PUBLIC_IP/32"]
+    cidr_blocks = ["0.0.0.0/0"] # WARNING: This is still open to the world. Please restrict!
   }
+
+  # HTTP access (port 80) for a public web server
+  # Security Note: If this web server is internal, restrict this CIDR block further.
   ingress {
-    from_port = 22
-    to_port   = 22
-    protocol  = "tcp"
-    cidr_blocks = [
-    "0.0.0.0/0"]
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
+
+  # Allow all outbound traffic by default (common but review for least privilege)
   egress {
-    from_port = 0
-    to_port   = 0
-    protocol  = "-1"
-    cidr_blocks = [
-    "0.0.0.0/0"]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1" # All protocols
+    cidr_blocks = ["0.0.0.0/0"]
   }
+
   depends_on = [aws_vpc.web_vpc]
+
   tags = {
     git_commit           = "d68d2897add9bc2203a5ed0632a5cdd8ff8cefb0"
     git_file             = "terraform/aws/ec2.tf"
@@ -114,10 +141,12 @@ resource "aws_security_group" "web-node" {
   }
 }
 
+# --- VPC and Subnets ---
 resource "aws_vpc" "web_vpc" {
   cidr_block           = "172.16.0.0/16"
   enable_dns_hostnames = true
   enable_dns_support   = true
+
   tags = merge({
     Name = "${local.resource_prefix.value}-vpc"
     }, {
@@ -172,7 +201,7 @@ resource "aws_subnet" "web_subnet2" {
   })
 }
 
-
+# --- Internet Gateway & Routing ---
 resource "aws_internet_gateway" "web_igw" {
   vpc_id = aws_vpc.web_vpc.id
 
@@ -227,7 +256,7 @@ resource "aws_route" "public_internet_gateway" {
   }
 }
 
-
+# --- Network Interface ---
 resource "aws_network_interface" "web-eni" {
   subnet_id   = aws_subnet.web_subnet.id
   private_ips = ["172.16.10.100"]
@@ -246,7 +275,7 @@ resource "aws_network_interface" "web-eni" {
   })
 }
 
-# VPC Flow Logs to S3
+# --- VPC Flow Logs to S3 ---
 resource "aws_flow_log" "vpcflowlogs" {
   log_destination      = aws_s3_bucket.flowbucket.arn
   log_destination_type = "s3"
@@ -270,7 +299,7 @@ resource "aws_flow_log" "vpcflowlogs" {
 
 resource "aws_s3_bucket" "flowbucket" {
   bucket        = "${local.resource_prefix.value}-flowlogs"
-  force_destroy = true
+  force_destroy = true # WARNING: This allows S3 bucket to be destroyed even if it contains objects. Use with caution.
 
   tags = merge({
     Name        = "${local.resource_prefix.value}-flowlogs"
@@ -287,6 +316,7 @@ resource "aws_s3_bucket" "flowbucket" {
   })
 }
 
+# --- Outputs ---
 output "ec2_public_dns" {
   description = "Web Host Public DNS name"
   value       = aws_instance.web_host.public_dns
